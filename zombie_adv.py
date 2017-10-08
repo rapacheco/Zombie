@@ -1,5 +1,6 @@
 import os
-from random import choice, randrange
+from random import choice, randrange, randint
+from math import atan, degrees, sqrt
 
 import pygame
 from pygame.locals import *
@@ -60,7 +61,10 @@ def erase_high_score():
     return 0
 
 def update_high_score():
-    pass
+    if high > so_far:
+        fullname = os.path.join("temp", "temp.csv")
+        with open(fullname, 'w+') as fp:
+            fp.write(str(high))
 
 def initialize():
     zombie = Zombie(5)
@@ -71,10 +75,7 @@ def initialize():
     hud.update()
     sound_track = SoundTrack()
     sound_track.play_intro()
-    return zombie, hud, main_char, shooting, brains
-
-def start_game():
-    pass
+    return zombie, hud, main_char, shooting, brains, sound_track
 
 # defines character's classes:
 class Zombie(pygame.sprite.Sprite):
@@ -96,10 +97,7 @@ class Zombie(pygame.sprite.Sprite):
         self.chew = load_sound("chew.wav")
         self.chew.set_volume(1.0)
         self.life = life
-        self.right = 0
-        self.left = 0
-        self.up = 0
-        self.down = 0
+        self.right, self.left, self.up, self.down = 0, 0, 0, 0
         self.count = 3
 
     def __str__(self):
@@ -212,40 +210,109 @@ class Shot(pygame.sprite.Sprite):
         self.sound = load_sound(choice(self.files))
         self.sound.play()
         self.damage = 1
+        self.image = pygame.Surface([20,20])
+        self.rect = self.image.get_rect()
         self.hor = choice([True, False])
+        self.velocity = 10
         if self.hor:
-            # horizontal shot
-            loc = zombie.rect.y + 25
+            loc = randint(0, HEIGHT-1)
             if choice([True, False]):
                 start_pos = [0,loc]
-                end_pos = [20,loc]
-                self.speed = 10
+                self.rect.x = start_pos[0]
+                self.rect.y = loc
+                w = zombie.rect.x + (zombie.rect.width / 2)
+                h = zombie.rect.y - start_pos[1]
+                if h > 0 or h == 0:
+                    h += (zombie.rect.height / 2)
+                    hip = sqrt(pow(h, 2) + pow(w, 2))
+                    self.speed = ((self.velocity * w) / hip, (self.velocity * h) / hip)
+                else:
+                    h = abs(h) - (zombie.rect.height / 2)
+                    hip = sqrt(pow(h, 2) + pow(w, 2))
+                    self.speed = ((self.velocity * w) / hip, -(self.velocity * h) / hip)
+                self.angle = degrees(atan((h / w)))
             else:
                 start_pos = [WIDTH-20,loc]
-                end_pos = [WIDTH,loc]
-                self.speed = -10
-            self.image = pygame.Surface([20,10])
-            self.image.fill(WHITE)
-            self.rect = self.image.get_rect()
-            self.rect.x = start_pos[0]
-            self.rect.y = loc
-
-        else:
-            # vertical shot
-            loc = zombie.rect.x + 25
-            if choice([True, False]):
-                start_pos = [loc,0]
-                end_pos = [loc,20]
-                self.speed = 10
+                self.rect.x = start_pos[0]
+                self.rect.y = loc
+                w = zombie.rect.x - start_pos[0] + (zombie.rect.width / 2)
+                h = zombie.rect.y - start_pos[1]
+                if h > 0 or h == 0:
+                    h += (zombie.rect.height / 2)
+                    hip = sqrt(pow(h, 2) + pow(w, 2))
+                    self.speed = ((self.velocity * w) / hip, (self.velocity * h) / hip)
+                else:
+                    h = abs(h) - (zombie.rect.height / 2)
+                    hip = sqrt(pow(h, 2) + pow(w, 2))
+                    self.speed = ((self.velocity * w) / hip, -(self.velocity * h) / hip)
+                self.angle = degrees(atan((h / w)))
+            if self.angle > 30:
+                pygame.draw.line(self.image, WHITE, (0, 0), (20, 20), 10)
+            elif self.angle < -30:
+                pygame.draw.line(self.image, WHITE, (0, 20), (20, 0), 10)
             else:
-                start_pos = [loc,HEIGHT-20]
-                end_pos = [loc,HEIGHT]
-                self.speed = -10
-            self.image = pygame.Surface([10,20])
-            self.image.fill(WHITE)
-            self.rect = self.image.get_rect()
-            self.rect.x = loc
-            self.rect.y = start_pos[1]
+                pygame.draw.line(self.image, WHITE, (0, 10), (20, 10), 10)
+            while True:
+                color = (randint(0, 19), randint(0, 19))
+                if self.image.get_at(color) != WHITE:
+                    colorkey = self.image.get_at(color)
+                    self.image.set_colorkey(colorkey, RLEACCEL)
+                    break
+        else:
+            above = choice([True, False])
+            loc = randint(0, WIDTH-1)
+            if above:
+                start_pos = [loc, 0]
+                self.rect.y = 0
+                self.rect.x = loc
+                h = zombie.rect.y + (zombie.rect.height / 2)
+                w = zombie.rect.x - start_pos[0]
+                orig_w = w
+                if w > 0 or w == 0:
+                    w += (zombie.rect.width / 2)
+                    hip = sqrt(pow(h, 2) + pow(w, 2))
+                    self.speed = ((self.velocity * w) / hip, (self.velocity * h) / hip)
+                else:
+                    w = abs(w) - (zombie.rect.width / 2)
+                    hip = sqrt(pow(h, 2) + pow(w, 2))
+                    self.speed = (-(self.velocity * w) / hip, (self.velocity * h) / hip)
+                self.angle = degrees(atan((orig_w / h)))
+            else:
+                start_pos = [loc, HEIGHT-20]
+                self.rect.y = start_pos[1]
+                self.rect.x = loc
+                h = start_pos[1] - zombie.rect.y + (zombie.rect.height / 2)
+                w = zombie.rect.x - start_pos[0]
+                orig_w = w
+                if w > 0 or w == 0:
+                    w += (zombie.rect.width / 2)
+                    hip = sqrt(pow(h, 2) + pow(w, 2))
+                    self.speed = ((self.velocity * w) / hip, -(self.velocity * h) / hip)
+                else:
+                    w = abs(w) - (zombie.rect.width / 2)
+                    hip = sqrt(pow(h, 2) + pow(w, 2))
+                    self.speed = (-(self.velocity * w) / hip, -(self.velocity * h) / hip)
+                self.angle = degrees(atan((orig_w / h)))
+
+            if self.angle <= 30 and self.angle >= -30:
+                pygame.draw.line(self.image, WHITE, (10, 0), (10, 20), 10)
+            else:
+                if above:
+                    if self.angle > 30:
+                        pygame.draw.line(self.image, WHITE, (0, 0), (20, 20), 10)
+                    elif self.angle < -30:
+                        pygame.draw.line(self.image, WHITE, (20, 0), (0, 20), 10)
+                else:
+                    if self.angle > 30:
+                        pygame.draw.line(self.image, WHITE, (20, 0), (0, 20), 10)
+                    elif self.angle < -30:
+                        pygame.draw.line(self.image, WHITE, (0, 0), (20, 20), 10)
+            while True:
+                color = (randint(0, 19), randint(0, 19))
+                if self.image.get_at(color) != WHITE:
+                    colorkey = self.image.get_at(color)
+                    self.image.set_colorkey(colorkey, RLEACCEL)
+                    break
 
     def __str__(self):
         return "Shot that takes one life"
@@ -255,9 +322,11 @@ class Shot(pygame.sprite.Sprite):
 
     def update(self):
         if self.hor:
-            self.rect.x += self.speed
+            self.rect.x += self.speed[0]
+            self.rect.y += self.speed[1]
         else:
-            self.rect.y += self.speed
+            self.rect.x += self.speed[0]
+            self.rect.y += self.speed[1]
 
 class Icons(pygame.sprite.Sprite):
     """
@@ -320,6 +389,7 @@ class Hud():
         self.sure1 = self.small.render("Are you sure you want to", True, BLACK)
         self.sure2 = self.small.render("reset the high score? (Y) or (N)", True, BLACK)
         self.credits = self.small.render("Credits", True, BLACK)
+        self.quit = self.small.render("Quit", True, BLACK)
 
     def update(self):
         self.brains = self.small.render("BRAINS: " + str(self.score), True, BLACK)
@@ -343,14 +413,13 @@ class Hud():
             screen.blit(self.down_title, (WIDTH // 2 - (self.down_title.get_width() // 2), HEIGHT // 2 - self.down_title.get_height() // 4))
             screen.blit(self.ask_title, (WIDTH // 2 - (self.ask_title.get_width() // 2), HEIGHT - self.ask_title.get_height() * 1.7))
             screen.blit(self.me, (WIDTH // 2 - (self.me.get_width() // 2), HEIGHT - self.me.get_height() * 1.1))
-        # elif game_halt and not dead and main_menu:
         elif main_menu:
-            i = (4, 8, 12)[state-1]
+            i = (4, 8, 12, 16)[state-1]
             screen.blit(self.arrow, (WIDTH // 5, HEIGHT // 20 * i))
             screen.blit(self.start, (WIDTH // 2 - (self.start.get_width() // 2), HEIGHT // 20 * 4))
             screen.blit(self.reset, (WIDTH // 2 - (self.reset.get_width() // 2), HEIGHT // 20 * 8))
             screen.blit(self.credits, (WIDTH // 2 - (self.credits.get_width() // 2), HEIGHT // 20 * 12))
-        # elif game_halt and not dead and sure:
+            screen.blit(self.quit, (WIDTH // 2 - (self.quit.get_width() // 2), HEIGHT // 20 * 16))
         elif sure:
             screen.blit(self.sure1, (WIDTH // 2 - (self.sure1.get_width() // 2), HEIGHT // 5 * 2))
             screen.blit(self.sure2, (WIDTH // 2 - (self.sure2.get_width() // 2), HEIGHT // 5 * 3))
@@ -399,19 +468,10 @@ if pygame.mixer is None:
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Zombie Attacked!")
 
-# initializes main character (zombie), the hud icons, groups and timers for character movement and event
-# sound_track = SoundTrack()
-# sound_track.play_intro()
-
 high, so_far = load_high_score()
 
-# zombie = Zombie(5)
-# hud = Hud(zombie)
-# hud.update()
-# main_char = pygame.sprite.GroupSingle((zombie))
-# shooting = pygame.sprite.Group(())
-# brains = pygame.sprite.Group(())
-zombie, hud, main_char, shooting, brains = start_game()
+main_screen_fade = False
+zombie, hud, main_char, shooting, brains, sound_track = initialize()
 
 icons = load_image("zombie_icons.png", colorkey=BLACK, size=(400, 200))
 background = load_image("background.png", size=(WIDTH, HEIGHT))
@@ -454,17 +514,31 @@ while not done:
         if event.type == pygame.KEYDOWN:
             if main_screen:
                 if event.key:
+                    # count, alpha = 0, 255
+                    # for i in range(255):
+                    #     alpha -= 1
+                    #     screen.blit(background, (0, 0))
+                    #     hud.up_title.set_alpha(alpha)
+                    #     hud.down_title.set_alpha(alpha)
+                    #     hud.ask_title.set_alpha(alpha)
+                    #     hud.me.set_alpha(alpha)
+                    #     screen.blit(hud.up_title, (WIDTH // 2 - (hud.up_title.get_width() // 2), hud.up_title.get_height() // 6))
+                    #     screen.blit(hud.down_title, (WIDTH // 2 - (hud.down_title.get_width() // 2), HEIGHT // 2 - hud.down_title.get_height() // 4))
+                    #     screen.blit(hud.ask_title, (WIDTH // 2 - (hud.ask_title.get_width() // 2), HEIGHT - hud.ask_title.get_height() * 1.7))
+                    #     screen.blit(hud.me, (WIDTH // 2 - (hud.me.get_width() // 2), HEIGHT - hud.me.get_height() * 1.1))
+                    #     pygame.display.flip()
+                    #     pygame.time.delay(1000)
                     main_screen, main_menu = False, True
 
             if main_menu:
                 if event.key == pygame.K_w or event.key == pygame.K_UP:
                     if state == 1:
-                        state = 3
+                        state = 4
                     else:
                         state -= 1
 
                 elif event.key == pygame.K_s or event.key == pygame.K_DOWN:
-                    if state == 3:
+                    if state == 4:
                         state = 1
                     else:
                         state += 1
@@ -481,6 +555,9 @@ while not done:
                     elif state == 3:
                         main_menu, credit = False, True
 
+                    elif state == 4:
+                        done = True
+
             if sure:
                 if event.key == pygame.K_y:
                     high = erase_high_score()
@@ -495,28 +572,15 @@ while not done:
 
             if dead:
                 if event.key == pygame.K_y:
-                    # restart the game, keeping only the high score value
-                    zombie = Zombie(5)
-                    hud = Hud(zombie)
-                    hud.update()
-                    main_char = pygame.sprite.GroupSingle((zombie))
-                    shooting = pygame.sprite.Group(())
-                    brains = pygame.sprite.Group(())
+                    zombie, hud, main_char, shooting, brains, sound_track = initialize()
                     sound_track.play_loop()
                     game_on, dead = True, False
                 elif event.key == pygame.K_n:
                     # closes the game window
+                    zombie, hud, main_char, shooting, brains, sound_track = initialize()
                     sound_track.play_intro()
                     hud.update()
                     main_menu, dead, state = True, False, 1
-            # elif event.key and (main_screen and not dead):
-            #     # starts the game with the touch of any button
-            #     main_menu = True
-            #     main_screen = False
-            # elif event.key == pygame.K_RETURN and (main_menu and not dead):
-            #     game_halt, main_menu = False, False
-            #     sound_track.stop_intro()
-            #     sound_track.play_loop()
 
         elif event.type == USEREVENT+1 and game_on:
             brains.update()
@@ -585,12 +649,7 @@ while not done:
     brains.draw(screen)
     pygame.display.flip()
 
-if high > so_far:
-    fullname = os.path.join("temp", "temp.csv")
-    fp = open(fullname, 'w+')
-    fp.write(str(high))
-    fp.close()
-
+update_high_score()
 pygame.quit()
 
 # Red Zombie images acquired from http://opengameart.org/content/bevouliin-free-zombie-sprite-sheets-game-character-for-game-developers
