@@ -91,6 +91,10 @@ class Main:
         self.zombie, self.hud, self.sound_track = self.load_classes()
         self.all_chars, self.main_char, self.shooting, self.brains = self.groups()
 
+        self.human = Human(3)
+        self.humans = pygame.sprite.Group(())
+        self.humans.add((self.human))
+
         self.high, self.so_far = self.load_high_score()
 
     def get_states(self):
@@ -200,6 +204,7 @@ class Main:
                     if event.key == pygame.K_y:
                         self.zombie, self.hud, self.sound_track = self.load_classes()
                         self.all_chars, self.main_char, self.shooting, self.brains = self.groups()
+
                         self.sound_track.play_loop()
                         self.states["game_on"], self.states["dead"] = True, False
                         self.lock = True
@@ -234,8 +239,7 @@ class Main:
             elif event.type == USEREVENT+1 and self.states["game_on"]:
                 self.brains.update()
             elif event.type == USEREVENT+2 and self.states["game_on"]:
-                shot = Shot(self.zombie)
-                self.shooting.add((shot))
+                self.human.shoot(self.zombie, self.shooting)
                 # pass
             elif event.type == USEREVENT+3 and self.states["game_on"]:
                 white_brain = WhiteBrain(self.icons)
@@ -292,6 +296,7 @@ class Main:
             self.zombie.walk()
             self.shooting.update()
             self.main_char.draw(self.screen)
+            self.humans.draw(self.screen)
 
         self.hud.draw(self.zombie, self.screen, self.states)
         self.shooting.draw(self.screen)
@@ -449,6 +454,7 @@ class Human(Character):
                     pygame.transform.flip(load_image("hit1.png", -1, size=self.size), True, False),
                     load_image("hit2.png", -1, size=self.size),
                     pygame.transform.flip(load_image("hit2.png", -1, size=self.size), True, False)]
+        self.rect = pygame.Rect((randint(0, self.WIDTH-self.size[0]),randint(0, self.HEIGHT-self.size[1])), self.size)
         self.state = self.idle
         self.image = self.state[0]
         self.life = life
@@ -466,12 +472,12 @@ class Human(Character):
     def get_life(self):
         return self.life
 
-    # def shoot(self, shot, target):
-    #     shot = shot()
-    #     self.chew.play()
+    def shoot(self, target, group):
+        shot = Shot((self.rect.x, self.rect.y), target, 10)
+        group.add((shot))
 
 class Shot(pygame.sprite.Sprite):
-    def __init__(self, zombie):
+    def __init__(self, pos, target, vel):
         pygame.sprite.Sprite.__init__(self)
         self.files = ["shot.wav", "shot2.flac", "shot3.flac"]
         self.sound = load_sound(choice(self.files))
@@ -479,107 +485,57 @@ class Shot(pygame.sprite.Sprite):
         self.damage = 1
         self.image = pygame.Surface([20,20])
         self.rect = self.image.get_rect()
-        self.hor = choice([True, False])
-        self.velocity = 10
-        if self.hor:
-            loc = randint(0, HEIGHT-1)
-            if choice([True, False]):
-                start_pos = [0,loc]
-                self.rect.x = start_pos[0]
-                self.rect.y = loc
-                w = zombie.rect.x + (zombie.rect.width / 2)
-                h = zombie.rect.y - start_pos[1]
-                if h > 0 or h == 0:
-                    h += (zombie.rect.height / 2)
-                    hip = sqrt(pow(h, 2) + pow(w, 2))
-                    self.speed = ((self.velocity * w) / hip, (self.velocity * h) / hip)
-                else:
-                    h = abs(h) - (zombie.rect.height / 2)
-                    hip = sqrt(pow(h, 2) + pow(w, 2))
-                    self.speed = ((self.velocity * w) / hip, -(self.velocity * h) / hip)
-                self.angle = degrees(atan((h / w)))
-            else:
-                start_pos = [WIDTH-20,loc]
-                self.rect.x = start_pos[0]
-                self.rect.y = loc
-                w = zombie.rect.x - start_pos[0] + (zombie.rect.width / 2)
-                h = zombie.rect.y - start_pos[1]
-                if h > 0 or h == 0:
-                    h += (zombie.rect.height / 2)
-                    hip = sqrt(pow(h, 2) + pow(w, 2))
-                    self.speed = ((self.velocity * w) / hip, (self.velocity * h) / hip)
-                else:
-                    h = abs(h) - (zombie.rect.height / 2)
-                    hip = sqrt(pow(h, 2) + pow(w, 2))
-                    self.speed = ((self.velocity * w) / hip, -(self.velocity * h) / hip)
-                self.angle = degrees(atan((h / w)))
-            if self.angle > 30:
-                pygame.draw.line(self.image, WHITE, (0, 0), (20, 20), 10)
-            elif self.angle < -30:
-                pygame.draw.line(self.image, WHITE, (0, 20), (20, 0), 10)
-            else:
-                pygame.draw.line(self.image, WHITE, (0, 10), (20, 10), 10)
-            while True:
-                color = (randint(0, 19), randint(0, 19))
-                if self.image.get_at(color) != WHITE:
-                    colorkey = self.image.get_at(color)
-                    self.image.set_colorkey(colorkey, RLEACCEL)
-                    break
-        else:
-            above = choice([True, False])
-            loc = randint(0, WIDTH-1)
-            if above:
-                start_pos = [loc, 0]
-                self.rect.y = 0
-                self.rect.x = loc
-                h = zombie.rect.y + (zombie.rect.height / 2)
-                w = zombie.rect.x - start_pos[0]
-                orig_w = w
-                if w > 0 or w == 0:
-                    w += (zombie.rect.width / 2)
-                    hip = sqrt(pow(h, 2) + pow(w, 2))
-                    self.speed = ((self.velocity * w) / hip, (self.velocity * h) / hip)
-                else:
-                    w = abs(w) - (zombie.rect.width / 2)
-                    hip = sqrt(pow(h, 2) + pow(w, 2))
-                    self.speed = (-(self.velocity * w) / hip, (self.velocity * h) / hip)
-                self.angle = degrees(atan((orig_w / h)))
-            else:
-                start_pos = [loc, HEIGHT-20]
-                self.rect.y = start_pos[1]
-                self.rect.x = loc
-                h = start_pos[1] - zombie.rect.y + (zombie.rect.height / 2)
-                w = zombie.rect.x - start_pos[0]
-                orig_w = w
-                if w > 0 or w == 0:
-                    w += (zombie.rect.width / 2)
-                    hip = sqrt(pow(h, 2) + pow(w, 2))
-                    self.speed = ((self.velocity * w) / hip, -(self.velocity * h) / hip)
-                else:
-                    w = abs(w) - (zombie.rect.width / 2)
-                    hip = sqrt(pow(h, 2) + pow(w, 2))
-                    self.speed = (-(self.velocity * w) / hip, -(self.velocity * h) / hip)
-                self.angle = degrees(atan((orig_w / h)))
+        self.velocity = vel
+        start_pos = pos
+        self.rect.x, self.rect.y = start_pos
+        self.down, self.right = True, True
 
-            if self.angle <= 30 and self.angle >= -30:
-                pygame.draw.line(self.image, WHITE, (10, 0), (10, 20), 10)
-            else:
-                if above:
-                    if self.angle > 30:
-                        pygame.draw.line(self.image, WHITE, (0, 0), (20, 20), 10)
-                    elif self.angle < -30:
-                        pygame.draw.line(self.image, WHITE, (20, 0), (0, 20), 10)
-                else:
-                    if self.angle > 30:
-                        pygame.draw.line(self.image, WHITE, (20, 0), (0, 20), 10)
-                    elif self.angle < -30:
-                        pygame.draw.line(self.image, WHITE, (0, 0), (20, 20), 10)
-            while True:
-                color = (randint(0, 19), randint(0, 19))
-                if self.image.get_at(color) != WHITE:
-                    colorkey = self.image.get_at(color)
-                    self.image.set_colorkey(colorkey, RLEACCEL)
-                    break
+        h, w = 0, 0
+
+        init_w = target.rect.x - start_pos[0]
+        if init_w > 0:
+            w = init_w + (target.rect.width / 2)
+        else:
+            if init_w < 0:
+                w = abs(init_w) - (target.rect.width / 2)
+            self.right = False
+
+        init_h = target.rect.y - start_pos[1]
+        if init_h > 0:
+            h = init_h + (target.rect.height / 2)
+        else:
+            if init_h < 0:
+                h = abs(init_h) - (target.rect.height / 2)
+            self.down = False
+
+        hip = sqrt(pow(h, 2) + pow(w, 2))
+
+        if self.right and self.down:
+            self.speed = ((self.velocity * w) / hip, (self.velocity * h) / hip)
+        elif self.right and not self.down:
+            self.speed = ((self.velocity * w) / hip, -(self.velocity * h) / hip)
+        elif not self.right and self.down:
+            self.speed = (-(self.velocity * w) / hip, (self.velocity * h) / hip)
+        elif not self.right and not self.down:
+            self.speed = (-(self.velocity * w) / hip, -(self.velocity * h) / hip)
+
+        self.angle = degrees(atan((h / w)))
+
+        if (init_w > WIDTH / 5 and init_h < -(HEIGHT / 5)) or (init_w < -(WIDTH / 5) and init_h > HEIGHT / 5):
+            pygame.draw.line(self.image, WHITE, (0, 20), (20, 0), 10)
+        elif (init_w > WIDTH / 5 and init_h > HEIGHT / 5) or (init_w < -(WIDTH / 5) and init_h < -(HEIGHT / 5)):
+            pygame.draw.line(self.image, WHITE, (0, 0), (20, 20), 10)
+        elif abs(init_w) > abs(init_h):
+            pygame.draw.line(self.image, WHITE, (0, 10), (20, 10), 10)
+        else:
+            pygame.draw.line(self.image, WHITE, (10, 0), (10, 20), 10)
+
+        while True:
+            color = (randint(0, 19), randint(0, 19))
+            if self.image.get_at(color) != WHITE:
+                colorkey = self.image.get_at(color)
+                self.image.set_colorkey(colorkey, RLEACCEL)
+                break
 
     def __str__(self):
         return "Shot that takes one life"
@@ -588,12 +544,139 @@ class Shot(pygame.sprite.Sprite):
         return self.damage
 
     def update(self):
-        if self.hor:
-            self.rect.x += self.speed[0]
-            self.rect.y += self.speed[1]
-        else:
-            self.rect.x += self.speed[0]
-            self.rect.y += self.speed[1]
+        self.rect.x += self.speed[0]
+        self.rect.y += self.speed[1]
+        # if self.hor:
+        #     self.rect.x += self.speed[0]
+        #     self.rect.y += self.speed[1]
+        # else:
+        #     self.rect.x += self.speed[0]
+        #     self.rect.y += self.speed[1]
+
+# class Shot(pygame.sprite.Sprite):
+#     def __init__(self, zombie):
+#         pygame.sprite.Sprite.__init__(self)
+#         self.files = ["shot.wav", "shot2.flac", "shot3.flac"]
+#         self.sound = load_sound(choice(self.files))
+#         self.sound.play()
+#         self.damage = 1
+#         self.image = pygame.Surface([20,20])
+#         self.rect = self.image.get_rect()
+#         self.hor = choice([True, False])
+#         self.velocity = 10
+#         if self.hor:
+#             loc = randint(0, HEIGHT-1)
+#             if choice([True, False]):
+#                 start_pos = [0,loc]
+#                 self.rect.x = start_pos[0]
+#                 self.rect.y = loc
+#                 w = zombie.rect.x + (zombie.rect.width / 2)
+#                 h = zombie.rect.y - start_pos[1]
+#                 if h > 0 or h == 0:
+#                     h += (zombie.rect.height / 2)
+#                     hip = sqrt(pow(h, 2) + pow(w, 2))
+#                     self.speed = ((self.velocity * w) / hip, (self.velocity * h) / hip)
+#                 else:
+#                     h = abs(h) - (zombie.rect.height / 2)
+#                     hip = sqrt(pow(h, 2) + pow(w, 2))
+#                     self.speed = ((self.velocity * w) / hip, -(self.velocity * h) / hip)
+#                 self.angle = degrees(atan((h / w)))
+#             else:
+#                 start_pos = [WIDTH-20,loc]
+#                 self.rect.x = start_pos[0]
+#                 self.rect.y = loc
+#                 w = zombie.rect.x - start_pos[0] + (zombie.rect.width / 2)
+#                 h = zombie.rect.y - start_pos[1]
+#                 if h > 0 or h == 0:
+#                     h += (zombie.rect.height / 2)
+#                     hip = sqrt(pow(h, 2) + pow(w, 2))
+#                     self.speed = ((self.velocity * w) / hip, (self.velocity * h) / hip)
+#                 else:
+#                     h = abs(h) - (zombie.rect.height / 2)
+#                     hip = sqrt(pow(h, 2) + pow(w, 2))
+#                     self.speed = ((self.velocity * w) / hip, -(self.velocity * h) / hip)
+#                 self.angle = degrees(atan((h / w)))
+#             if self.angle > 30:
+#                 pygame.draw.line(self.image, WHITE, (0, 0), (20, 20), 10)
+#             elif self.angle < -30:
+#                 pygame.draw.line(self.image, WHITE, (0, 20), (20, 0), 10)
+#             else:
+#                 pygame.draw.line(self.image, WHITE, (0, 10), (20, 10), 10)
+#             while True:
+#                 color = (randint(0, 19), randint(0, 19))
+#                 if self.image.get_at(color) != WHITE:
+#                     colorkey = self.image.get_at(color)
+#                     self.image.set_colorkey(colorkey, RLEACCEL)
+#                     break
+#         else:
+#             above = choice([True, False])
+#             loc = randint(0, WIDTH-1)
+#             if above:
+#                 start_pos = [loc, 0]
+#                 self.rect.y = 0
+#                 self.rect.x = loc
+#                 h = zombie.rect.y + (zombie.rect.height / 2)
+#                 w = zombie.rect.x - start_pos[0]
+#                 orig_w = w
+#                 if w > 0 or w == 0:
+#                     w += (zombie.rect.width / 2)
+#                     hip = sqrt(pow(h, 2) + pow(w, 2))
+#                     self.speed = ((self.velocity * w) / hip, (self.velocity * h) / hip)
+#                 else:
+#                     w = abs(w) - (zombie.rect.width / 2)
+#                     hip = sqrt(pow(h, 2) + pow(w, 2))
+#                     self.speed = (-(self.velocity * w) / hip, (self.velocity * h) / hip)
+#                 self.angle = degrees(atan((orig_w / h)))
+#             else:
+#                 start_pos = [loc, HEIGHT-20]
+#                 self.rect.y = start_pos[1]
+#                 self.rect.x = loc
+#                 h = start_pos[1] - zombie.rect.y + (zombie.rect.height / 2)
+#                 w = zombie.rect.x - start_pos[0]
+#                 orig_w = w
+#                 if w > 0 or w == 0:
+#                     w += (zombie.rect.width / 2)
+#                     hip = sqrt(pow(h, 2) + pow(w, 2))
+#                     self.speed = ((self.velocity * w) / hip, -(self.velocity * h) / hip)
+#                 else:
+#                     w = abs(w) - (zombie.rect.width / 2)
+#                     hip = sqrt(pow(h, 2) + pow(w, 2))
+#                     self.speed = (-(self.velocity * w) / hip, -(self.velocity * h) / hip)
+#                 self.angle = degrees(atan((orig_w / h)))
+#
+#             if self.angle <= 30 and self.angle >= -30:
+#                 pygame.draw.line(self.image, WHITE, (10, 0), (10, 20), 10)
+#             else:
+#                 if above:
+#                     if self.angle > 30:
+#                         pygame.draw.line(self.image, WHITE, (0, 0), (20, 20), 10)
+#                     elif self.angle < -30:
+#                         pygame.draw.line(self.image, WHITE, (20, 0), (0, 20), 10)
+#                 else:
+#                     if self.angle > 30:
+#                         pygame.draw.line(self.image, WHITE, (20, 0), (0, 20), 10)
+#                     elif self.angle < -30:
+#                         pygame.draw.line(self.image, WHITE, (0, 0), (20, 20), 10)
+#             while True:
+#                 color = (randint(0, 19), randint(0, 19))
+#                 if self.image.get_at(color) != WHITE:
+#                     colorkey = self.image.get_at(color)
+#                     self.image.set_colorkey(colorkey, RLEACCEL)
+#                     break
+#
+#     def __str__(self):
+#         return "Shot that takes one life"
+#
+#     def get_damage(self):
+#         return self.damage
+#
+#     def update(self):
+#         if self.hor:
+#             self.rect.x += self.speed[0]
+#             self.rect.y += self.speed[1]
+#         else:
+#             self.rect.x += self.speed[0]
+#             self.rect.y += self.speed[1]
 
 class Icons(pygame.sprite.Sprite):
     """
