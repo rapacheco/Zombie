@@ -1,116 +1,318 @@
 import os
-from random import choice, randrange, randint
-from math import atan, degrees, sqrt
+from random import choice, randint, randrange
+from math import sqrt, atan, degrees
 
 import pygame
 from pygame.locals import *
 
-# global constants:
 WIDTH = 800
 HEIGHT = 500
 BLACK = (0,0,0)
 WHITE = (255,255,255)
 MAX_ICONS = 3
 
-# helper functions
-def load_image(file, colorkey=None, size=(50,50)):
+def main():
+    game = Main()
+    while not game.done:
+        game.loop()
+
+def get_size():
+    return (WIDTH, HEIGHT)
+
+def load_image(file, colorkey=None, size=(50, 50)):
     fullname = os.path.join("images", file)
-    image = pygame.image.load(fullname)
-    image = image.convert()
+    img = pygame.image.load(fullname)
+    img = img.convert()
     if colorkey is not None:
         if colorkey is -1:
-            colorkey = image.get_at((0,0))
-        image.set_colorkey(colorkey, RLEACCEL)
-    return pygame.transform.scale(image, size)
+            colorkey = img.get_at((0,0))
+        img.set_colorkey(colorkey, RLEACCEL)
+    return pygame.transform.scale(img, size)
 
 def load_sound(name, music=False):
     class NoneSound:
         def play(self): pass
-    if not pygame.mixer:
-        return NoneSound()
     if music:
         folder = "music"
     else:
         folder = "sounds"
     fullname = os.path.join(folder, name)
-    sound = pygame.mixer.Sound(fullname)
-    return sound
+    return pygame.mixer.Sound(fullname)
 
 def load_font(file, size):
     if file is not None:
         fullname = os.path.join("fonts", file)
     else:
         fullname = None
-    font = pygame.font.Font(fullname, size)
-    return font
+    return pygame.font.Font(fullname, size)
 
-def load_high_score():
-    fullname = os.path.join("temp", "temp.csv")
-    with open(fullname, 'r') as fp:
-        temp = fp.read()
-        if temp == '':
-            high, so_far = 0, 0
-        else:
-            high, so_far = int(temp), int(temp)
-    return high, so_far
+class Main:
+    def __init__(self):
+        pygame.init()
+        pygame.font.init()
+        pygame.mixer.init()
+        if pygame.font is None:
+            print("Warning, fonts disabled")
+        if pygame.mixer is None:
+            print("Warning, sound disabled")
+        pygame.display.set_caption("Zombie Attacked!")
 
-def erase_high_score():
-    fullname = os.path.join("temp", "temp.csv")
-    with open(fullname, 'w') as fp:
-        fp.write('0')
-    return 0
+        self.width, self.height = get_size()
+        self.screen = pygame.display.set_mode((self.width, self.height))
+        self.background = load_image("background.png", size=(self.width, self.height))
+        self.icons = load_image("zombie_icons.png", colorkey=BLACK, size=(400, 200))
+        self.blood = load_image("blood.png", -1, size=(300, 50))
 
-def update_high_score():
-    if high > so_far:
+        pygame.time.set_timer(USEREVENT+1, 500)
+        pygame.time.set_timer(USEREVENT+2, 1000)
+        pygame.time.set_timer(USEREVENT+3, 5000)
+        self.clock = pygame.time.Clock()
+
+        self.done = False
+        self.hurt = False
+        self.lock = False
+
+        # hud states
+        self.states = {
+            "state": 1,
+            "main_screen": True,
+            "main_menu": False,
+            "sure": False,
+            "credit": False,
+            "game_on": False,
+            "dead": False}
+
+        self.count = 0
+        self.playtime = 0
+        self.cycletime = 0
+        self.interval = 1.0
+
+        self.high, self.so_far = self.load_high_score()
+        self.zombie, self.hud, self.sound_track = self.load_classes()
+        self.all_chars, self.main_char, self.shooting, self.brains = self.groups()
+
+        self.high, self.so_far = self.load_high_score()
+
+    def get_states(self):
+        return self.states
+
+    def load_high_score(self):
         fullname = os.path.join("temp", "temp.csv")
-        with open(fullname, 'w+') as fp:
-            fp.write(str(high))
+        with open(fullname, 'r') as fp:
+            temp = fp.read()
+            if temp == '':
+                high, so_far = 0, 0
+            else:
+                high, so_far = int(temp), int(temp)
+        return high, so_far
 
-def initialize():
-    zombie = Zombie(5)
-    hud = Hud(zombie)
-    main_char = pygame.sprite.GroupSingle((zombie))
-    shooting = pygame.sprite.Group(())
-    brains = pygame.sprite.Group(())
-    hud.update()
-    sound_track = SoundTrack()
-    sound_track.play_intro()
-    return zombie, hud, main_char, shooting, brains, sound_track
+    def erase_score(self):
+        fullname = os.path.join("temp", "temp.csv")
+        with open(fullname, 'w') as fp:
+            fp.write('0')
+        return 0
 
-# defines character's classes:
-class Zombie(pygame.sprite.Sprite):
-    """
-    Class for the zombie, the main character of the game
-    """
-    def __init__(self, life):
+    def update_high_score(self, high, so_far):
+        if high > so_far:
+            fullname = os.path.join("temp", "temp.csv")
+            with open(fullname, 'w+') as fp:
+                fp.write(str(high))
+
+    def load_classes(self):
+        zombie = Zombie(5)
+        hud = Hud(zombie, self.high)
+        hud.update(self.high)
+        sound_track = SoundTrack()
+        return zombie, hud, sound_track
+
+    def groups(self):
+        main_char = pygame.sprite.GroupSingle((self.zombie))
+        all_chars = pygame.sprite.Group(())
+        all_chars.add((self.zombie))
+        shooting = pygame.sprite.Group(())
+        brains = pygame.sprite.Group(())
+        return all_chars, main_char, shooting, brains
+
+    def loop(self):
+        self.milliseconds = self.clock.tick(60)
+        self.seconds = self.milliseconds / 1000.0
+        self.playtime += self.seconds
+        self.cycletime += self.seconds
+
+        for event in pygame.event.get():
+            if event.type == pygame.KEYDOWN:
+
+                if self.states["main_screen"] and not self.lock:
+                    if event.key:
+                        self.states["main_screen"], self.states["main_menu"] = False, True
+                        self.lock = True
+
+                if self.states["main_menu"] and not self.lock:
+                    if event.key == pygame.K_w or event.key == pygame.K_UP:
+                        if self.states["state"] == 1:
+                            self.states["state"] = 4
+                        else:
+                            self.states["state"] -= 1
+                        self.lock = True
+
+                    elif event.key == pygame.K_s or event.key == pygame.K_DOWN:
+                        if self.states["state"] == 4:
+                            self.states["state"] = 1
+                        else:
+                            self.states["state"] += 1
+                        self.lock = True
+
+                    elif event.key == pygame.K_RETURN:
+                        if self.states["state"] == 1:
+                            self.states["main_menu"], self.states["game_on"] = False, True
+                            self.sound_track.stop_intro()
+                            self.sound_track.play_loop()
+                            self.lock = True
+
+                        elif self.states["state"] == 2:
+                            self.states["main_menu"], self.states["sure"] = False, True
+                            self.lock = True
+
+                        elif self.states["state"] == 3:
+                            self.states["main_menu"], self.states["credit"] = False, True
+                            self.lock = True
+
+                        elif self.states["state"] == 4:
+                            self.update_high_score(self.high, self.so_far)
+                            self.done = True
+
+                if self.states["sure"] and not self.lock:
+                    if event.key == pygame.K_y:
+                        self.high = self.erase_score()
+                        self.hud.update(self.high)
+                        self.states["main_menu"], self.states["sure"] = True, False
+                        self.lock = True
+                    elif event.key == pygame.K_n:
+                        self.states["main_menu"], self.states["sure"] = True, False
+                        self.lock = True
+
+                if self.states["credit"] and not self.lock:
+                    if event.key:
+                        self.states["main_menu"], self.states["credit"] = True, False
+                        self.lock = True
+
+                if self.states["dead"] and not self.lock:
+                    if event.key == pygame.K_y:
+                        self.zombie, self.hud, self.sound_track = self.load_classes()
+                        self.all_chars, self.main_char, self.shooting, self.brains = self.groups()
+                        self.sound_track.play_loop()
+                        self.states["game_on"], self.states["dead"] = True, False
+                        self.lock = True
+                    elif event.key == pygame.K_n:
+                        self.zombie, self.hud, self.sound_track = self.load_classes()
+                        self.all_chars, self.main_char, self.shooting, self.brains = self.groups()
+                        self.sound_track.play_intro()
+                        self.states["main_menu"], self.states["dead"], self.states["state"] = True, False, 1
+                        self.lock = True
+
+            elif event.type == pygame.KEYUP:
+                if self.states["main_screen"]:
+                    if event.key:
+                        self.lock = False
+
+                if self.states["main_menu"]:
+                    if event.key:
+                        self.lock = False
+
+                if self.states["sure"]:
+                    if event.key:
+                        self.lock = False
+
+                if self.states["credit"]:
+                    if event.key:
+                        self.lock = False
+
+                if self.states["dead"]:
+                    if event.key:
+                        self.lock = False
+
+            elif event.type == USEREVENT+1 and self.states["game_on"]:
+                self.brains.update()
+            elif event.type == USEREVENT+2 and self.states["game_on"]:
+                shot = Shot(self.zombie)
+                self.shooting.add((shot))
+                # pass
+            elif event.type == USEREVENT+3 and self.states["game_on"]:
+                white_brain = WhiteBrain(self.icons)
+                self.brains.add((white_brain))
+            elif event.type == pygame.QUIT:
+                self.update_high_score(self.high, self.so_far)
+                self.done = True
+            self.zombie.movement(event)
+
+        # if zombie gets shot, takes damage
+        for coll in pygame.sprite.groupcollide(self.shooting, self.main_char, True, False):
+            damage = coll.get_damage()
+            self.zombie.hurt(damage)
+            self.zombie.hurted = True
+            self.hud.decr_life(damage, self.high)
+
+        # if char gets hurt, spray of blood
+        for char in self.all_chars:
+            if char.hurted:
+                if self.cycletime > self.interval and char.anim < 6:
+                    self.background.blit(self.blood, (char.rect.x, char.rect.y, 50, 50), area=(50 * char.anim, 0, 50, 50))
+                    char.anim += 1
+                elif char.anim >= 6:
+                    char.anim = 0
+                    char.hurted = False
+
+        # if run out of lives, zombie dies and game over
+        if self.zombie.life <= 0:
+            self.zombie.dying()
+            self.states["game_on"], self.states["dead"] = False, True
+            self.sound_track.fadeout_loop(2500)
+
+        # if zombie gets a brain, improve score
+        for catch in pygame.sprite.groupcollide(self.brains, self.main_char, True, False):
+            self.high = self.hud.incr_score(1, self.high)
+            self.zombie.sound_chew()
+
+        # sets maximum amount of brains in 10
+        for b in self.brains:
+            if b.count >= 11:
+                self.brains.remove((b))
+
+        # remove the shots as soon as they clear the screen
+        for s in self.shooting:
+            if s.rect.x < -20 or s.rect.x > WIDTH+20 or s.rect.y < -20 or s.rect.y > HEIGHT+20:
+                self.shooting.remove((s))
+
+        # paint the screen black and draw background
+        self.screen.fill(BLACK)
+        self.screen.blit(self.background, (0, 0))
+
+        # allows the zombie to walk and the shooting to take place
+        if self.states["game_on"] and not self.states["dead"]:
+            self.zombie.walk()
+            self.shooting.update()
+            self.main_char.draw(self.screen)
+
+        self.hud.draw(self.zombie, self.screen, self.states)
+        self.shooting.draw(self.screen)
+        self.brains.draw(self.screen)
+        pygame.display.flip()
+
+class Character(pygame.sprite.Sprite):
+    def __init__(self):
         pygame.sprite.Sprite.__init__(self)
-        self.idle = [load_image("idle1.png", -1), pygame.transform.flip(load_image("idle1.png", -1), True, False),
-                     load_image("idle2.png", -1), pygame.transform.flip(load_image("idle2.png", -1), True, False)]
-        self.hit = [load_image("hit1.png", -1), pygame.transform.flip(load_image("hit1.png", -1), True, False),
-                    load_image("hit2.png", -1), pygame.transform.flip(load_image("hit2.png", -1), True, False)]
-        self.death = load_image("splat.png", -1)
-        self.state = self.idle
-        self.image = self.state[0]
-        self.rect = pygame.Rect([WIDTH/2,HEIGHT/2],[WIDTH/12.8,HEIGHT/9.6])
-        self.roar = load_sound("roar.wav")
-        self.roar.set_volume(0.8)
-        self.chew = load_sound("chew.wav")
-        self.chew.set_volume(1.0)
-        self.life = life
+        self.WIDTH, self.HEIGHT = get_size()
+        self.size = (int(self.WIDTH/16), int(self.HEIGHT/10))
+        self.rect = pygame.Rect((self.WIDTH/2,self.HEIGHT/2), self.size)
+
+        self.death = load_image("splat.png", -1, size=self.size)
+
+        self.speed = 0
+        self.life = 0
+        self.anim = 0
+
         self.right, self.left, self.up, self.down = 0, 0, 0, 0
-        self.count = 3
-
-    def __str__(self):
-        return "Zombie with life " + str(self.life) + "."
-
-    def get_life(self):
-        return self.life
-
-    def get_score(self):
-        return self.score
-
-    def incr_score(self, points):
-        self.score += points
+        self.hurted, self.init, self.r = False, False, False
 
     def turn(self):
         """
@@ -125,17 +327,6 @@ class Zombie(pygame.sprite.Sprite):
         elif self.image == self.state[3]:
             self.image = self.state[2]
 
-    def hurt(self, damage):
-        self.state = self.hit
-        self.roar.play()
-        self.life -= damage
-
-    def sound_chew(self):
-        self.chew.play()
-
-    def dying(self):
-        self.image = self.death
-
     def walk(self):
         """
         Makes the character move
@@ -144,33 +335,40 @@ class Zombie(pygame.sprite.Sprite):
             if self.rect.x >= 0:
                 self.rect.x += self.left
         elif self.right > 0:
-            if self.rect.x <= WIDTH - self.image.get_width():
+            if self.rect.x <= self.WIDTH - self.image.get_width():
                 self.rect.x += self.right
         if self.up < 0:
             if self.rect.y >= 0:
                 self.rect.y += self.up
         elif self.down > 0:
-            if self.rect.y <= HEIGHT - self.image.get_height():
+            if self.rect.y <= self.HEIGHT - self.image.get_height():
                 self.rect.y += self.down
 
-    def movement(self):
-        global init, right
+    def hurt(self, damage):
+        self.state = self.hit
+        self.roar.play()
+        self.life -= damage
+
+    def dying(self):
+        self.image = self.death
+
+    def movement(self, event):
         # code to make character turn to the direction it is moved and begin to walk
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_d or event.key == pygame.K_RIGHT:
-                self.right = 5
-                if not right:
+                self.right = self.speed
+                if not self.r:
                     self.turn()
-                    right = True
+                    self.r = True
             elif event.key == pygame.K_a or event.key == pygame.K_LEFT:
-                self.left = -5
-                if right:
+                self.left = -self.speed
+                if self.r:
                     self.turn()
-                    right = False
+                    self.r = False
             elif event.key == pygame.K_w or event.key == pygame.K_UP:
-                self.up = -5
+                self.up = -self.speed
             elif event.key == pygame.K_s or event.key == pygame.K_DOWN:
-                self.down = 5
+                self.down = self.speed
 
         # code for stoping the character when button is released
         elif event.type == pygame.KEYUP:
@@ -190,21 +388,90 @@ class Zombie(pygame.sprite.Sprite):
             if self.count <= 0:
                 self.state = self.idle
                 self.count = 3
-            if init and right:
+            if self.init and self.r:
                 self.image = self.state[1]
-                init = False
-            elif init and not right:
+                self.init = False
+            elif self.init and not self.r:
                 self.image = self.state[0]
-                init = False
-            elif not init and right:
+                self.init = False
+            elif not self.init and self.r:
                 self.image = self.state[3]
-                init = True
-            elif not init and not right:
+                self.init = True
+            elif not self.init and not self.r:
                 self.image = self.state[2]
-                init = True
+                self.init = True
+
+class Zombie(Character):
+    """
+    Class for the zombie, the main character of the game
+    """
+    def __init__(self, life):
+        Character.__init__(self)
+        self.idle = [load_image("idle1.png", -1, size=self.size),
+                     pygame.transform.flip(load_image("idle1.png", -1, size=self.size), True, False),
+                     load_image("idle2.png", -1, size=self.size),
+                     pygame.transform.flip(load_image("idle2.png", -1, size=self.size), True, False)]
+        self.hit = [load_image("hit1.png", -1, size=self.size),
+                    pygame.transform.flip(load_image("hit1.png", -1, size=self.size), True, False),
+                    load_image("hit2.png", -1, size=self.size),
+                    pygame.transform.flip(load_image("hit2.png", -1, size=self.size), True, False)]
+        self.state = self.idle
+        self.image = self.state[0]
+        self.life = life
+        self.speed = 5
+        self.count = 3
+
+        self.roar = load_sound("roar.wav")
+        self.roar.set_volume(0.7)
+        self.chew = load_sound("chew.wav")
+        self.chew.set_volume(1.0)
+
+    def __str__(self):
+        return "Zombie with life " + str(self.life) + "."
+
+    def get_life(self):
+        return self.life
+
+    def sound_chew(self):
+        self.chew.play()
+
+class Human(Character):
+    """
+    Class for the humans, the enemies of the zombie
+    """
+    def __init__(self, life):
+        Character.__init__(self)
+        self.idle = [load_image("idle1.png", -1, size=self.size),
+                     pygame.transform.flip(load_image("idle1.png", -1, size=self.size), True, False),
+                     load_image("idle2.png", -1, size=self.size),
+                     pygame.transform.flip(load_image("idle2.png", -1, size=self.size), True, False)]
+        self.hit = [load_image("hit1.png", -1, size=self.size),
+                    pygame.transform.flip(load_image("hit1.png", -1, size=self.size), True, False),
+                    load_image("hit2.png", -1, size=self.size),
+                    pygame.transform.flip(load_image("hit2.png", -1, size=self.size), True, False)]
+        self.state = self.idle
+        self.image = self.state[0]
+        self.life = life
+        self.speed = 3
+        self.count = 3
+
+        self.roar = load_sound("roar.wav")
+        self.roar.set_volume(0.7)
+        self.chew = load_sound("chew.wav")
+        self.chew.set_volume(1.0)
+
+    def __str__(self):
+        return "Human with life " + str(self.life) + "."
+
+    def get_life(self):
+        return self.life
+
+    # def shoot(self, shot, target):
+    #     shot = shot()
+    #     self.chew.play()
 
 class Shot(pygame.sprite.Sprite):
-    def __init__(self):
+    def __init__(self, zombie):
         pygame.sprite.Sprite.__init__(self)
         self.files = ["shot.wav", "shot2.flac", "shot3.flac"]
         self.sound = load_sound(choice(self.files))
@@ -349,10 +616,10 @@ class WhiteBrain(Icons):
     White brains give 1 point for the player
     Inherits from the Icons Class
     """
-    def __init__(self):
+    def __init__(self, icons):
         Icons.__init__(self, icons)
         self.image = self.icons.subsurface((100, 150, 50, 45))
-        self.loc = (randrange(WIDTH - 50), randrange(HEIGHT - 50))
+        self.loc = (randint(0, WIDTH - 50), randint(0, HEIGHT - 50))
         self.rect = pygame.Rect((self.loc), (50, 45))
 
     def update(self):
@@ -369,11 +636,12 @@ class Hud():
     Class for all the fonts blitted on the screen
     Includes the score, high score, lives, game over and title screen
     """
-    def __init__(self, char):
-        self.micro = load_font("creepster.ttf", HEIGHT // 20)
-        self.small = load_font("creepster.ttf", HEIGHT // 10)
-        self.medium = load_font("creepster.ttf", HEIGHT // 5)
-        self.big = load_font("holocaust.ttf", HEIGHT // 3)
+    def __init__(self, char, high):
+        self.width, self.height = get_size()
+        self.micro = load_font("creepster.ttf", self.height // 20)
+        self.small = load_font("creepster.ttf", self.height // 10)
+        self.medium = load_font("creepster.ttf", self.height // 5)
+        self.big = load_font("holocaust.ttf", self.height // 3)
         #
         self.score, self.high_score, self.life_left = 0, high, char.get_life()
         self.over = self.medium.render("GAME OVER!!!", True, BLACK)
@@ -391,51 +659,50 @@ class Hud():
         self.credits = self.small.render("Credits", True, BLACK)
         self.quit = self.small.render("Quit", True, BLACK)
 
-    def update(self):
+    def update(self, high):
         self.brains = self.small.render("BRAINS: " + str(self.score), True, BLACK)
         self.lives = self.small.render("LIVES: " + str(self.life_left), True, BLACK)
         self.higher = self.small.render("HIGH SCORE: " + str(high), True, BLACK)
 
-    def draw(self, char, screen):
-        if game_on:
-            screen.blit(self.brains, (WIDTH // 20, HEIGHT // 30))
-            screen.blit(self.higher, (WIDTH // 2 - (self.higher.get_width() // 2), HEIGHT // 30))
-            screen.blit(self.lives, (WIDTH - (WIDTH // 20) - self.lives.get_width(), HEIGHT // 30))
-        elif dead:
-            screen.blit(self.brains, (WIDTH // 20, HEIGHT // 30))
-            screen.blit(self.higher, (WIDTH // 2 - (self.higher.get_width() // 2), HEIGHT // 30))
-            screen.blit(self.lives, (WIDTH - (WIDTH // 20) - self.lives.get_width(), HEIGHT // 30))
-            screen.blit(self.over, (WIDTH // 2 - (self.over.get_width() // 2), HEIGHT // 2 - (self.over.get_height() // 2)))
-            screen.blit(self.ask, (WIDTH // 2 - (self.ask.get_width() // 2), HEIGHT // 2 + self.ask.get_height()))
-        # elif game_halt and not dead and main_screen:
-        elif main_screen:
-            screen.blit(self.up_title, (WIDTH // 2 - (self.up_title.get_width() // 2), self.up_title.get_height() // 6))
-            screen.blit(self.down_title, (WIDTH // 2 - (self.down_title.get_width() // 2), HEIGHT // 2 - self.down_title.get_height() // 4))
-            screen.blit(self.ask_title, (WIDTH // 2 - (self.ask_title.get_width() // 2), HEIGHT - self.ask_title.get_height() * 1.7))
-            screen.blit(self.me, (WIDTH // 2 - (self.me.get_width() // 2), HEIGHT - self.me.get_height() * 1.1))
-        elif main_menu:
-            i = (4, 8, 12, 16)[state-1]
-            screen.blit(self.arrow, (WIDTH // 5, HEIGHT // 20 * i))
-            screen.blit(self.start, (WIDTH // 2 - (self.start.get_width() // 2), HEIGHT // 20 * 4))
-            screen.blit(self.reset, (WIDTH // 2 - (self.reset.get_width() // 2), HEIGHT // 20 * 8))
-            screen.blit(self.credits, (WIDTH // 2 - (self.credits.get_width() // 2), HEIGHT // 20 * 12))
-            screen.blit(self.quit, (WIDTH // 2 - (self.quit.get_width() // 2), HEIGHT // 20 * 16))
-        elif sure:
-            screen.blit(self.sure1, (WIDTH // 2 - (self.sure1.get_width() // 2), HEIGHT // 5 * 2))
-            screen.blit(self.sure2, (WIDTH // 2 - (self.sure2.get_width() // 2), HEIGHT // 5 * 3))
-        elif credits:
-            pass
+    def draw(self, char, screen, states):
+        if states["game_on"]:
+            screen.blit(self.brains, (self.width // 20, self.height // 30))
+            screen.blit(self.higher, (self.width // 2 - (self.higher.get_width() // 2), self.height // 30))
+            screen.blit(self.lives, (self.width - (self.width // 20) - self.lives.get_width(), self.height // 30))
+        elif states["dead"]:
+            screen.blit(self.brains, (self.width // 20, self.height // 30))
+            screen.blit(self.higher, (self.width // 2 - (self.higher.get_width() // 2), self.height // 30))
+            screen.blit(self.lives, (self.width - (self.width // 20) - self.lives.get_width(), self.height // 30))
+            screen.blit(self.over, (self.width // 2 - (self.over.get_width() // 2), self.height // 2 - (self.over.get_height() // 2)))
+            screen.blit(self.ask, (self.width // 2 - (self.ask.get_width() // 2), self.height // 2 + self.ask.get_height()))
+        elif states["main_screen"]:
+            screen.blit(self.up_title, (self.width // 2 - (self.up_title.get_width() // 2), self.up_title.get_height() // 6))
+            screen.blit(self.down_title, (self.width // 2 - (self.down_title.get_width() // 2), self.height // 2 - self.down_title.get_height() // 4))
+            screen.blit(self.ask_title, (self.width // 2 - (self.ask_title.get_width() // 2), self.height - self.ask_title.get_height() * 1.7))
+            screen.blit(self.me, (self.width // 2 - (self.me.get_width() // 2), self.height - self.me.get_height() * 1.1))
+        elif states["main_menu"]:
+            i = (4, 8, 12, 16)[states["state"]-1]
+            screen.blit(self.arrow, (self.width // 5, self.height // 20 * i))
+            screen.blit(self.start, (self.width // 2 - (self.start.get_width() // 2), self.height // 20 * 4))
+            screen.blit(self.reset, (self.width // 2 - (self.reset.get_width() // 2), self.height // 20 * 8))
+            screen.blit(self.credits, (self.width // 2 - (self.credits.get_width() // 2), self.height // 20 * 12))
+            screen.blit(self.quit, (self.width // 2 - (self.quit.get_width() // 2), self.height // 20 * 16))
+        elif states["sure"]:
+            screen.blit(self.sure1, (self.width // 2 - (self.sure1.get_width() // 2), self.height // 5 * 2))
+            screen.blit(self.sure2, (self.width // 2 - (self.sure2.get_width() // 2), self.height // 5 * 3))
+        elif states["credit"]:
+            screen.blit(self.me, (self.width // 2 - (self.me.get_width() // 2), self.height - self.me.get_height() * 1.1))
 
-    def decr_life(self, damage):
+    def decr_life(self, damage, high):
         self.life_left -= damage
-        self.update()
+        self.update(high)
 
-    def incr_score(self, points):
-        global high
+    def incr_score(self, points, high):
         self.score += points
         if self.score > high:
             high += points
-        self.update()
+        self.update(high)
+        return high
 
 class SoundTrack():
     def __init__(self):
@@ -457,200 +724,8 @@ class SoundTrack():
     def fadeout_loop(self, milisecs):
         self.loop.fadeout(milisecs)
 
-# initializes pygame and creates a frame
-pygame.init()
-pygame.font.init()
-pygame.mixer.init()
-if not pygame.font.get_init():
-    print("Warning, fonts disabled")
-if pygame.mixer is None:
-    print("Warning, sound disabled")
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Zombie Attacked!")
-
-high, so_far = load_high_score()
-
-main_screen_fade = False
-zombie, hud, main_char, shooting, brains, sound_track = initialize()
-
-icons = load_image("zombie_icons.png", colorkey=BLACK, size=(400, 200))
-background = load_image("background.png", size=(WIDTH, HEIGHT))
-blood = load_image("blood.png", -1, size=(300, 50))
-
-pygame.time.set_timer(USEREVENT+1, 500)
-pygame.time.set_timer(USEREVENT+2, 1000)
-pygame.time.set_timer(USEREVENT+3, 5000)
-clock = pygame.time.Clock()
-
-# initializes variables for the main loop
-right = False
-init = False
-done = False
-hurt = False
-#
-main_screen = True
-main_menu = False
-sure = False
-credit = False
-game_on = False
-dead = False
-#
-state = 1
-count = 0
-playtime = 0
-cycletime = 0
-interval = 1.0
-
-# main loop with the game's logic
-while not done:
-    # keeps track of time for animation purposes
-    milliseconds = clock.tick(60)
-    seconds = milliseconds / 1000.0
-    playtime += seconds
-    cycletime += seconds
-
-    for event in pygame.event.get():
-        # playes decides if wants to play a new game or to quit when game ends
-        if event.type == pygame.KEYDOWN:
-            if main_screen:
-                if event.key:
-                    # count, alpha = 0, 255
-                    # for i in range(255):
-                    #     alpha -= 1
-                    #     screen.blit(background, (0, 0))
-                    #     hud.up_title.set_alpha(alpha)
-                    #     hud.down_title.set_alpha(alpha)
-                    #     hud.ask_title.set_alpha(alpha)
-                    #     hud.me.set_alpha(alpha)
-                    #     screen.blit(hud.up_title, (WIDTH // 2 - (hud.up_title.get_width() // 2), hud.up_title.get_height() // 6))
-                    #     screen.blit(hud.down_title, (WIDTH // 2 - (hud.down_title.get_width() // 2), HEIGHT // 2 - hud.down_title.get_height() // 4))
-                    #     screen.blit(hud.ask_title, (WIDTH // 2 - (hud.ask_title.get_width() // 2), HEIGHT - hud.ask_title.get_height() * 1.7))
-                    #     screen.blit(hud.me, (WIDTH // 2 - (hud.me.get_width() // 2), HEIGHT - hud.me.get_height() * 1.1))
-                    #     pygame.display.flip()
-                    #     pygame.time.delay(1000)
-                    main_screen, main_menu = False, True
-
-            if main_menu:
-                if event.key == pygame.K_w or event.key == pygame.K_UP:
-                    if state == 1:
-                        state = 4
-                    else:
-                        state -= 1
-
-                elif event.key == pygame.K_s or event.key == pygame.K_DOWN:
-                    if state == 4:
-                        state = 1
-                    else:
-                        state += 1
-
-                elif event.key == pygame.K_RETURN:
-                    if state == 1:
-                        main_menu, game_on = False, True
-                        sound_track.stop_intro()
-                        sound_track.play_loop()
-
-                    elif state == 2:
-                        main_menu, sure = False, True
-
-                    elif state == 3:
-                        main_menu, credit = False, True
-
-                    elif state == 4:
-                        done = True
-
-            if sure:
-                if event.key == pygame.K_y:
-                    high = erase_high_score()
-                    hud.update()
-                    main_menu, sure = True, False
-                elif event.key == pygame.K_n:
-                    main_menu, sure = True, False
-
-            if credits:
-                if event.key:
-                    main_menu, credits = True, False
-
-            if dead:
-                if event.key == pygame.K_y:
-                    zombie, hud, main_char, shooting, brains, sound_track = initialize()
-                    sound_track.play_loop()
-                    game_on, dead = True, False
-                elif event.key == pygame.K_n:
-                    # closes the game window
-                    zombie, hud, main_char, shooting, brains, sound_track = initialize()
-                    sound_track.play_intro()
-                    hud.update()
-                    main_menu, dead, state = True, False, 1
-
-        elif event.type == USEREVENT+1 and game_on:
-            brains.update()
-        elif event.type == USEREVENT+2 and game_on:
-            shot = Shot()
-            shooting.add((shot))
-            # pass
-        elif event.type == USEREVENT+3 and game_on:
-            white_brain = WhiteBrain()
-            brains.add((white_brain))
-        elif event.type == pygame.QUIT:
-            done = True
-        zombie.movement()
-
-    # if zombie gets shot, takes damage
-    for coll in pygame.sprite.groupcollide(shooting, main_char, True, False):
-        dam = coll.get_damage()
-        zombie.hurt(dam)
-        hud.decr_life(dam)
-        hurt = True
-
-    # if zombie gets a brain, improve score
-    for catch in pygame.sprite.groupcollide(brains, main_char, True, False):
-        hud.incr_score(1)
-        zombie.sound_chew()
-
-    # sets maximum amount of brains in 10
-    for b in brains:
-        if b.count >= 11:
-            brains.remove((b))
-
-    # remove the shots as soon as they clear the screen
-    for s in shooting:
-        if s.rect.x < -20 or s.rect.x > WIDTH+20 or s.rect.y < -20 or s.rect.y > HEIGHT+20:
-            shooting.remove((s))
-
-    # if zombie gets hurt, spray of blood
-    if hurt:
-        if cycletime > interval and count < 6:
-            background.blit(blood, (zombie.rect.x, zombie.rect.y, 50, 50), area=(50 * count, 0, 50, 50))
-            count += 1
-        elif count >= 6:
-            count = 0
-            hurt = False
-
-    # if run out of lives, zombie dies and game over
-    if zombie.life <= 0:
-        zombie.dying()
-        game_on, dead = False, True
-        sound_track.fadeout_loop(2500)
-
-    # paint the screen black and draw background
-    screen.fill(BLACK)
-    screen.blit(background, (0, 0))
-
-    # allows the zombie to walk and the shooting to take place
-    if game_on:
-        zombie.walk()
-        shooting.update()
-        main_char.draw(screen)
-
-    # code for drawing the elements in the screen
-    hud.draw(zombie, screen)
-    # if not game_halt:
-    shooting.draw(screen)
-    brains.draw(screen)
-    pygame.display.flip()
-
-update_high_score()
-pygame.quit()
+if __name__ == "__main__":
+    main()
 
 # Red Zombie images acquired from http://opengameart.org/content/bevouliin-free-zombie-sprite-sheets-game-character-for-game-developers
 # Zombie sounds acquired from http://soundbible.com/950-Bite.html
@@ -662,9 +737,8 @@ pygame.quit()
 # Soundtrack acquired from http://www.music-note.jp/bgm/mp3/0801/darkshadow_loop.wav and http://www.music-note.jp/bgm/mp3/0801/darkshadow.wav
 
 # TO DO:
+# - characters shooting zombie
 # - fix delay on the shooting sound
-# - main screen
-# - way to restart high score
 # - make an executable file
 # - different kinds of shots
 # - special brains and other icons
